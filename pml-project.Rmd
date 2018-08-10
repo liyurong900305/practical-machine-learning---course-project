@@ -1,0 +1,141 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Yurong Li"
+date: "August 10, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+## Project Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Project Data
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Project Objective
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+# Data Loading, Partition, and Cleaning
+
+## Load the Data
+```{r}
+training<-read.csv('pml-training.csv', na.strings = c("NA","#DIV/0!",""))
+testing<-read.csv('pml-testing.csv', na.strings = c("NA","#DIV/0!",""))
+```
+
+## Partition the Training Data into Two Sets
+```{r, message=FALSE}
+library(caret, quietly = TRUE)
+set.seed(33345)
+inTrain<-createDataPartition(training$classe, p=0.6, list = FALSE)
+myTraining<-training[inTrain,]
+myTesting<-training[-inTrain,]
+```
+
+## Clean the Data
+
+### Remove near zero variance variables
+```{r}
+nzv<-nearZeroVar(myTraining, saveMetrics = TRUE)
+myTraining<-myTraining[,nzv$nzv==FALSE]
+myTesting<-myTesting[,nzv$nzv==FALSE]
+testing<-testing[,nzv$nzv==FALSE]
+```
+### Remove variables with more than 60% NAs
+```{r}
+removeNA<-vector()
+for (i in 1:ncol(myTraining)) {
+  if (sum(is.na(myTraining[,i]))/nrow(myTraining)>0.6) {
+    removeNA<-c(removeNA,i)
+  }
+}
+myTraining<-myTraining[,-removeNA]
+myTesting<-myTesting[,-removeNA]
+testing<-testing[,-removeNA]
+```
+### Remove the record number and problem id column from the training data and testing data
+```{r}
+myTraining<-myTraining[,-1]
+myTesting<-myTesting[,-1]
+testing<-testing[,-c(1,ncol(testing))]
+```
+
+# Predictive Model Creation and Selection
+
+## Predict with Decision Trees
+```{r, message=FALSE}
+library(rpart, quietly = TRUE)
+library(rpart.plot, quietly = TRUE)
+library(RColorBrewer, quietly = TRUE)
+library(rattle, quietly = TRUE)
+mod_dt<-rpart(classe~., data = myTraining, method = "class")
+pred_dt<-predict(mod_dt, myTesting, type = "class")
+accuracy_dt<-confusionMatrix(pred_dt, myTesting$classe)$overall[1]
+fancyRpartPlot(mod_dt)
+```
+
+The accuracy of prediction with decision trees is `r accuracy_dt`.
+
+## Predict with Random Forests
+```{r, message=FALSE}
+library(randomForest, quietly = TRUE)
+mod_rf<-randomForest(classe~., data = myTraining)
+pred_rf<-predict(mod_rf, myTesting, type = "class")
+accuracy_rf<-confusionMatrix(pred_rf, myTesting$classe)$overall[1]
+plot(mod_rf)
+```
+
+The accuracy of prediction with random forests is `r accuracy_rf`.
+
+## Predict with Generalized Boosted Regression
+```{r, message=FALSE}
+fitControl<-trainControl(method = "repeatedcv", number = 5, repeats = 1)
+mod_gbm<-train(classe~., data = myTraining, method = "gbm", trControl = fitControl, verbose = FALSE)
+pred_gbm<-predict(mod_gbm, myTesting)
+accuracy_gbm<-confusionMatrix(pred_gbm, myTesting$classe)$overall[1]
+plot(mod_gbm)
+```
+
+The accuracy of prediction with generalized boosted regression is `r accuracy_gbm`.
+
+## Selecte the predictive model with highest accuracy
+
+The predictive model with the highest accuracy is **prediction with random forests**, which has an accuracy of `r accuracy_rf`, so it is used for prediction on the 20 cases in the next session.
+
+# Prediction on Testing Data
+
+Coerce the factor variables in the testing data into the same level as the training data.
+```{r}
+for (i in 1:ncol(testing)) {
+  if (class(testing[,i])=="factor") {
+    variable<-names(testing)[i]
+    levels(testing[,i])<-levels(myTraining[,variable])
+  }
+}
+```
+
+Predict on the testing data.
+```{r}
+pred_testing<-predict(mod_rf, testing, type = "class")
+pred_testing
+```
+
+# Write the Prediction Results to a File
+```{r, message=FALSE}
+library(xlsx, quietly = TRUE)
+result<-testing
+result$prediction_result<-pred_testing
+write.xlsx(result, "pml-project prediction result.xlsx")
+```

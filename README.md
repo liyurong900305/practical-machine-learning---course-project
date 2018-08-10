@@ -1,1 +1,1 @@
-# practical-machine-learning---course-project
+# practical machine learning - course-project
